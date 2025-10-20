@@ -1,0 +1,55 @@
+name: Fetch Win With Odds Data
+
+on:
+  schedule:
+    # Run every 12 hours at 00:00 and 12:00 UTC
+    - cron: '0 0,12 * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  fetch-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch Win With Odds CSV
+        run: |
+          echo "Fetching data from Win With Odds..."
+          curl -s "https://winwithodds.com/download/downloadable_props.csv" -o props.csv
+
+          # Verify the file was downloaded and has content
+          if [ ! -s props.csv ]; then
+            echo "Error: Failed to download data or file is empty"
+            exit 1
+          fi
+
+          echo "Data fetched successfully"
+          wc -l props.csv
+
+      - name: Create metadata file
+        run: |
+          echo "{" > metadata.json
+          echo "  \"last_updated\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"," >> metadata.json
+          echo "  \"source\": \"https://winwithodds.com/download/downloadable_props.csv\"," >> metadata.json
+          echo "  \"row_count\": $(wc -l < props.csv | tr -d ' ')" >> metadata.json
+          echo "}" >> metadata.json
+
+          cat metadata.json
+
+      - name: Commit and push if changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          # Add files
+          git add props.csv metadata.json
+
+          # Check if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update props data - $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+            git push
+          fi
