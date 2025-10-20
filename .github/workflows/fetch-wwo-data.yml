@@ -1,4 +1,4 @@
-name: Fetch Win With Odds Data
+name: Fetch WWO Data
 
 on:
   schedule:
