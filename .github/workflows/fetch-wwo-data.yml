@@ -2,8 +2,8 @@ name: Fetch Win With Odds Data
 
 on:
   schedule:
-    # Run every 12 hours at 00:00 and 12:00 UTC
-    - cron: '0 0,12 * * *'
+    # Run 8 times per day (every 3 hours) at: 12am, 3am, 6am, 9am, 12pm, 3pm, 6pm, 9pm UTC
+    - cron: '0 0,3,6,9,12,15,18,21 * * *'
   workflow_dispatch: # Allows manual trigger from GitHub Actions tab
 
 jobs:
@@ -13,6 +13,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Random delay (0-15 minutes)
+        run: |
+          DELAY=$((RANDOM % 900))
+          echo "Waiting ${DELAY} seconds before fetching..."
+          sleep $DELAY
 
       - name: Fetch Win With Odds CSV
         run: |
