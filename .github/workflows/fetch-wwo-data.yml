@@ -6,6 +6,19 @@ on:
     - cron: '0 0,3,6,9,12,15,18,21 * * *'
   workflow_dispatch: # Allows manual trigger from GitHub Actions tab
 
+# Needed so the bot can push the refreshed data back to main.
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-wwo-data
+  cancel-in-progress: false
+
+env:
+  SOURCE_URL: https://www.winwithodds.com/download/downloadable_props.csv
+  # Reject anything that looks too small to be a real slate of players.
+  MIN_ROWS: 100
+
 jobs:
   fetch-data:
     runs-on: ubuntu-latest
@@ -22,39 +35,77 @@ jobs:
 
       - name: Fetch Win With Odds CSV
         run: |
-          echo "Fetching data from Win With Odds..."
-          curl -s "https://winwithodds.com/download/downloadable_props.csv" -o props.csv
+          set -euo pipefail
+          echo "Fetching data from $SOURCE_URL ..."
+          # -f: fail on HTTP errors, -L: follow redirects (the site moved to www.),
+          # --retry: ride out transient 5xx/network blips.
+          curl -fsSL --retry 3 --retry-delay 10 --max-time 120 \
+               "$SOURCE_URL" -o props.candidate.csv
 
-          # Verify the file was downloaded and has content
-          if [ ! -s props.csv ]; then
-            echo "Error: Failed to download data or file is empty"
+      - name: Validate downloaded data
+        run: |
+          set -euo pipefail
+
+          if [ ! -s props.candidate.csv ]; then
+            echo "::error::Download is empty."
             exit 1
           fi
 
-          echo "Data fetched successfully"
-          wc -l props.csv
+          # Guard against redirect/error pages being saved as "data" — this is what
+          # silently broke the feed when the source moved to the www. hostname.
+          if head -c 512 props.candidate.csv | grep -qi '<!doctype\|<html'; then
+            echo "::error::Downloaded an HTML page, not a CSV. First lines:"
+            head -5 props.candidate.csv
+            exit 1
+          fi
 
-      - name: Create metadata file
+          HEADER=$(head -1 props.candidate.csv)
+          case "$HEADER" in
+            Player,Pos,*) ;;
+            *)
+              echo "::error::Unexpected CSV header: $HEADER"
+              exit 1
+              ;;
+          esac
+
+          ROWS=$(($(wc -l < props.candidate.csv) - 1))
+          if [ "$ROWS" -lt "$MIN_ROWS" ]; then
+            echo "::error::Only $ROWS data rows (expected at least $MIN_ROWS)."
+            exit 1
+          fi
+
+          echo "Validated: $ROWS data rows"
+          echo "Header: $HEADER"
+          echo "ROW_COUNT=$ROWS" >> "$GITHUB_ENV"
+
+      - name: Promote validated data
         run: |
-          echo "{" > metadata.json
-          echo "  \"last_updated\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\"," >> metadata.json
-          echo "  \"source\": \"https://winwithodds.com/download/downloadable_props.csv\"," >> metadata.json
-          echo "  \"row_count\": $(wc -l < props.csv | tr -d ' ')" >> metadata.json
-          echo "}" >> metadata.json
+          set -euo pipefail
+          mv props.candidate.csv props.csv
+
+          cat > metadata.json <<EOF
+          {
+            "last_updated": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "source": "$SOURCE_URL",
+            "row_count": $ROW_COUNT
+          }
+          EOF
 
           cat metadata.json
 
       - name: Commit and push if changes
         run: |
+          set -euo pipefail
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
-          # Add files
           git add props.csv metadata.json
 
-          # Check if there are changes
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
+          # metadata.json always changes (timestamp), so only commit when the
+          # actual data moved — otherwise we'd push 8 empty updates a day.
+          if git diff --staged --quiet -- props.csv; then
+            echo "props.csv unchanged - nothing to commit"
+            git reset
           else
             git commit -m "Update props data - $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
             git push
