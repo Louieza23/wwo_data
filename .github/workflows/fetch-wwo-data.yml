@@ -11,7 +11,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: fetch-wwo-data
+  group: mirror-push
   cancel-in-progress: false
 
 env:
@@ -108,5 +108,6 @@ jobs:
             git reset
           else
             git commit -m "Update props data - $(date -u +"%Y-%m-%d %H:%M:%S UTC")"
+            git pull --rebase origin main
             git push
           fi

@@ -8,7 +8,9 @@ extension users pull from this repo instead of hammering the source site.
 | File | Purpose |
 | --- | --- |
 | `props.csv` | Prop-derived weekly stat projections, one row per player. |
-| `metadata.json` | When the data was last refreshed, the source URL, and the row count. |
+| `metadata.json` | When the props data was last refreshed, the source URL, and the row count. |
+| `espn_projections.csv` | ESPN's own weekly projections, same column shape as `props.csv`. |
+| `espn_metadata.json` | Season, week and row count for the ESPN pull. |
 
 ## Consumed by
 
